@@ -36,15 +36,22 @@ source .venv/bin/activate  # On macOS/Linux
 pip install pandas numpy openpyxl
 ```
 
+## Example File
+
+The repository includes an example Excel file (`example_DFMEA_Coolant_Valve.xlsx`) that demonstrates the expected format:
+- Contains "Recommended Actions" and "Comments" columns
+- Has semicolon-separated values in the Recommended Actions column
+- Shows how the script processes and modifies the data
+
 ## Usage
 
-1. Place your Excel file in the same directory as the script
+1. Either use the example file or place your Excel file in the same directory as the script
 2. Run the script:
 ```bash
 python DFMEA_parser
 ```
 3. Follow the prompts to:
-   - Enter the Excel file name
+   - Enter the Excel file name (e.g., "example_DFMEA_Coolant_Valve.xlsx")
    - Specify the Recommended Actions column name
    - Specify the Comments column name
    - Review and modify entries as needed
