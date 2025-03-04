@@ -1,0 +1,208 @@
+import pandas as pd
+import numpy as np
+import os
+
+# Get the directory where the script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Get user inputs
+print("\nPlease provide the following information:")
+input_file = input("Enter the Excel file name (must be in the same folder): ").strip()
+TARGET_COLUMN = input("Enter the Recommended Actions column name: ").strip()
+CM_COLUMN = input("Enter the Comments column name: ").strip()
+
+# Load the Excel file
+try:
+    # Construct full path to the Excel file
+    excel_path = os.path.join(script_dir, input_file)
+    df = pd.read_excel(excel_path)
+    
+    # Verify that the specified columns exist
+    if TARGET_COLUMN not in df.columns:
+        raise ValueError(f"Column '{TARGET_COLUMN}' not found in the Excel file.")
+    if CM_COLUMN not in df.columns:
+        raise ValueError(f"Column '{CM_COLUMN}' not found in the Excel file.")
+        
+    print(f"\nSuccessfully loaded '{input_file}'")
+    print(f"Found columns: {', '.join(df.columns)}")
+except Exception as e:
+    print(f"\nError: {str(e)}")
+    print("Please make sure:")
+    print("1. The Excel file is in the same folder as this script")
+    print("2. The file name is correct (including .xlsx extension)")
+    print("3. The column names match exactly with those in your Excel file")
+    exit(1)
+
+# Function to split rows based on semicolon in RA column
+def split_rows(df, column=TARGET_COLUMN):
+    rows = []
+    for _, row in df.iterrows():
+        split_values = str(row[column]).split(";")  # Split values by semicolon
+        for value in split_values:
+            if value.strip():  # Avoid empty values
+                new_row = row.copy()
+                new_row[column] = value.strip()  # Keep only the single value
+                rows.append(new_row)
+    return pd.DataFrame(rows)
+
+# Function to get unique RA items
+def get_unique_ra_items(df, column=TARGET_COLUMN):
+    unique_items = df[column].unique()
+    return sorted([item.strip() for item in unique_items if isinstance(item, str) and item.strip()])
+
+# Function to get replacements for unique values
+def get_replacements(unique_items):
+    replacements = {}
+    cm_updates = {}  # Dictionary to store which original values should be added to CM
+    print("\nFor each item:")
+    for item in unique_items:
+        # Ask for replacement
+        replacement = input(f"\nReplace '{item}' with (or press Enter to keep the same value): ").strip()
+        if replacement:  # Only if a replacement was provided
+            replacements[item] = replacement
+            # Ask about adding to CM
+            add_to_cm = input(f"Add original value '{item}' to Comments? (y/n): ").strip().lower()
+            if add_to_cm == 'y':
+                cm_updates[item] = True
+    return replacements, cm_updates
+
+# Function to safely update CM column
+def update_cm_value(current_cm, new_value):
+    # Convert nan to empty string
+    current_cm = "" if pd.isna(current_cm) else str(current_cm).strip()
+    
+    # If current CM is empty, just add the new value with semicolons
+    if not current_cm:
+        return f";{new_value};"
+    
+    # If the value is already in CM (including semicolons), don't add it again
+    if f";{new_value};" in current_cm:
+        return current_cm
+    
+    # Add the new value with semicolons
+    return f"{current_cm};{new_value};"
+
+# Function to apply replacements to the dataframe
+def apply_replacements(df, replacements, cm_updates, column=TARGET_COLUMN):
+    # Create a copy of the dataframe to avoid modifying the original
+    new_df = df.copy()
+    
+    # Create the replacements column next to the target column
+    replacement_column = f"{column}_Replacements"
+    # Find the position of the target column
+    target_col_pos = new_df.columns.get_loc(column)
+    # Insert the new column right after the target column
+    new_df.insert(target_col_pos + 1, replacement_column, new_df[column])
+    
+    # If CM column doesn't exist, create it
+    if CM_COLUMN not in new_df.columns:
+        new_df[CM_COLUMN] = ""
+    
+    # Apply replacements and update CM column
+    for original, replacement in replacements.items():
+        # Find rows where the target column matches the original value
+        mask = new_df[column] == original
+        
+        # Apply replacement to the new column
+        new_df.loc[mask, replacement_column] = replacement
+        
+        # If this original value should be added to CM
+        if original in cm_updates:
+            # Update CM column for matching rows
+            new_df.loc[mask, CM_COLUMN] = new_df.loc[mask, CM_COLUMN].apply(
+                lambda x: update_cm_value(x, original)
+            )
+    
+    return new_df
+
+# Function to review and modify CM column entries with multiple semicolons
+def review_cm_entries(df):
+    # Function to count semicolons that are not at the start or end
+    def count_internal_semicolons(text):
+        if pd.isna(text):
+            return 0
+        text = str(text)
+        # Remove leading and trailing semicolons
+        text = text.strip(';')
+        return text.count(';')
+
+    # Find rows where Comments column has internal semicolons
+    mask = df[CM_COLUMN].apply(count_internal_semicolons) > 0
+    rows_to_review = df[mask]
+    
+    if len(rows_to_review) == 0:
+        print("\nNo rows found with multiple entries in Comments column.")
+        return df
+    
+    print(f"\nFound {len(rows_to_review)} rows with multiple entries in Comments column.")
+    print("Reviewing each row:")
+    
+    # Create a copy of the dataframe
+    new_df = df.copy()
+    
+    # Review each row
+    for idx in rows_to_review.index:
+        row = rows_to_review.loc[idx]
+        print("\nRow details:")
+        
+        # Clean up the display by removing index numbers and showing full values
+        def clean_display(value):
+            if isinstance(value, pd.Series):
+                value = value.iloc[0] if not value.empty else ""
+            if pd.isna(value):
+                return ""
+            # Convert to string and remove any index numbers at the start
+            value_str = str(value)
+            # Remove any numbers and spaces at the start
+            while value_str and (value_str[0].isdigit() or value_str[0].isspace()):
+                value_str = value_str[1:]
+            return value_str.strip()
+        
+        print(f"Function: {clean_display(row['Function'])}")
+        print(f"Original {TARGET_COLUMN}: {clean_display(row[TARGET_COLUMN])}")
+        if f"{TARGET_COLUMN}_Replacements" in row:
+            print(f"{TARGET_COLUMN}_Replacements: {clean_display(row[f'{TARGET_COLUMN}_Replacements'])}")
+        print(f"Current Comments value: {clean_display(row[CM_COLUMN])}")
+        
+        # Ask for modification
+        modify = input("\nWould you like to modify this Comments entry? (y/n): ").strip().lower()
+        if modify == 'y':
+            new_value = input("Enter new Comments value (use semicolons as needed): ").strip()
+            new_df.at[idx, CM_COLUMN] = new_value
+    
+    return new_df
+
+# Apply initial split
+new_df = split_rows(df)
+
+# Save the initial split dataframe
+output_path = os.path.join(script_dir, "DFMEA_Coolant_Valve_processed.xlsx")  # Use script directory for output
+new_df.to_excel(output_path, index=False)
+print(f"Initial split file saved as {output_path}")
+
+# Get and display unique items
+print(f"\nUnique {TARGET_COLUMN} items:")
+unique_items = get_unique_ra_items(new_df)
+for i, item in enumerate(unique_items, 1):
+    print(f"{i}. {item}")
+
+# Get replacements from user
+replacements, cm_updates = get_replacements(unique_items)
+
+if replacements:
+    # Apply replacements if any were provided
+    new_df = apply_replacements(new_df, replacements, cm_updates)
+    
+    # Review and modify CM entries with multiple semicolons
+    new_df = review_cm_entries(new_df)
+    
+    # Save the updated dataframe with replacements (overwrite the processed file)
+    new_df.to_excel(output_path, index=False)
+    print(f"\nUpdated file saved as {output_path}")
+    
+    # Show the replacements that were made
+    print("\nReplacements made:")
+    for original, replacement in replacements.items():
+        print(f"'{original}' → '{replacement}'")
+        if original in cm_updates:
+            print(f"  (Original value added to Comments column)") 

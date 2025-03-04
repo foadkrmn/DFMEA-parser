@@ -1,0 +1,19 @@
+# Python virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Excel files
+*.xlsx
+
+# macOS system files
+.DS_Store
+
+# IDE specific files
+.vscode/
+.idea/ 
